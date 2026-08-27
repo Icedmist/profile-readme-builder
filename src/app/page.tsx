@@ -10,6 +10,7 @@ type Mode = "studio" | "github" | "source";
 type AssetKey = "hero" | "process" | "community";
 type SvgSettings = { accent: string; ink: string; soft: string; heroLabel: string; processLabel: string; footerLabel: string };
 type GithubProfile = { username: string; name: string; avatarUrl: string; publicRepos: number; followers: number; following: number; contributions: number | null; profileUrl: string };
+type GithubAuthUser = { login: string; name: string; avatarUrl: string; profileUrl: string };
 
 const starterProjects: Project[] = [
   { name: "signal-garden", description: "A tiny observability layer for calm, useful software.", tech: "TypeScript · Next.js" },
@@ -46,6 +47,7 @@ export default function Home() {
   const [publishStatus, setPublishStatus] = useState<"idle" | "publishing" | "success" | "error">("idle");
   const [githubProfile, setGithubProfile] = useState<GithubProfile | null>(null);
   const [githubStatus, setGithubStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [authUser, setAuthUser] = useState<GithubAuthUser | null>(null);
   const setField = (field: keyof typeof profile, value: string) => setProfile((current) => ({ ...current, [field]: value }));
   const toggleComponent = (key: ComponentKey) => setComponents((current) => ({ ...current, [key]: !current[key] }));
   const setAsset = (key: AssetKey, value: string) => setAssets((current) => ({ ...current, [key]: value }));
@@ -63,6 +65,8 @@ export default function Home() {
       .catch((error: Error) => { if (error.name !== "AbortError") { setGithubProfile(null); setGithubStatus("error"); } });
     return () => controller.abort();
   }, [profile.handle]);
+
+  useEffect(() => { fetch("/api/auth/github/me").then((response) => response.ok ? response.json() as Promise<{ login: string; name: string; avatarUrl: string; profileUrl: string }> : null).then((user) => setAuthUser(user)); }, []);
 
   const markdown = useMemo(() => {
     const work = projects.map((project, index) => `### ${index + 1}. ${project.name}\n\n${project.description}\n\n**${project.tech}**`).join("\n\n");
@@ -87,11 +91,13 @@ export default function Home() {
     if (response.status === 401) { window.location.href = "/api/auth/github/start"; return; }
     setPublishStatus(response.ok ? "success" : "error");
   };
+  const loginWithGitHub = () => { window.location.href = "/api/auth/github/start"; };
+  const logoutFromGitHub = async () => { await fetch("/api/auth/github/sign-out", { method: "POST" }); setAuthUser(null); setPublishStatus("idle"); };
   const saveDraft = () => { localStorage.setItem("readme-studio-draft", JSON.stringify({ profile, projects, components, svgSettings, showStats, showProjects, showContact })); setSaved(true); window.setTimeout(() => setSaved(false), 1800); };
   const reset = () => { setProfile(initialState); setProjects(starterProjects); setAssets(starterAssets); setSvgSettings(initialSvgSettings); setComponents({ typing: true, snake: true, divider: true, projects: true, footer: true }); setShowStats(true); setShowProjects(true); setShowContact(true); setSaved(false); };
 
   return <main className={`builder-shell ${darkPreview ? "dark-preview" : ""}`}>
-    <header className="topbar"><div className="brand-lockup"><span className="brand-mark">✳</span><span>readme / studio</span></div><div className="topbar-meta"><span className="status-dot" /> {saved ? "Draft saved" : "Autosaved just now"} <button className="avatar" onClick={saveDraft}>MO</button></div></header>
+    <header className="topbar"><div className="brand-lockup"><span className="brand-mark">✳</span><span>readme / studio</span></div><div className="topbar-meta"><span className="status-dot" /> {saved ? "Draft saved" : "Autosaved just now"}{authUser ? <button className="auth-user" onClick={logoutFromGitHub} title="Sign out of GitHub"><img src={authUser.avatarUrl} alt="" /> @{authUser.login}</button> : <button className="github-login" onClick={loginWithGitHub}>Log in with GitHub <span>↗</span></button>}<button className="avatar" onClick={saveDraft}>MO</button></div></header>
     <section className="intro-row"><div><p className="eyebrow">Personal identity, in markdown</p><h1>Make a README<br /><em>that sounds like you.</em></h1></div><div className="intro-side"><p>Compose a living profile from GitHub-safe animated components, then preview exactly what travels with your Markdown.</p><span className="step-count">01 <i /> 03</span></div></section>
     <div className="workspace-grid"><aside className="editor-panel">
       <div className="panel-heading"><div><span className="section-number">01</span><h2>Your signal</h2></div><span className="edit-label">EDITING</span></div>
