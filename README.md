@@ -20,12 +20,18 @@
  Copy `.env.example` to `.env.local`, create a GitHub OAuth App at https://github.com/settings/developers, and set:
 
  ```bash
+APP_URL=https://icedmist.tech
  GITHUB_CLIENT_ID=your-client-id
  GITHUB_CLIENT_SECRET=your-client-secret
- GITHUB_REDIRECT_URI=http://localhost:3000/api/auth/github/callback
+GITHUB_REDIRECT_URI=https://icedmist.tech/api/auth/github/callback
  ```
 
- The **Add to GitHub** action uses OAuth with `repo` access, creates the user profile repository when needed, and publishes `README.md` plus the generated SVG files under `assets/`. Do not commit `.env.local` or OAuth secrets.
+In the GitHub OAuth App settings use:
+
+- Homepage URL: `https://icedmist.tech`
+- Authorization callback URL: `https://icedmist.tech/api/auth/github/callback`
+
+The runtime authorization URL is generated as `https://github.com/login/oauth/authorize` with your client ID, the callback URL, a CSRF state value, and the `public_repo` scope. The **Add to GitHub** action uses OAuth, creates the user profile repository when needed, and publishes `README.md` plus the generated SVG files under `assets/`. Do not commit `.env.local` or OAuth secrets.
 
  ## SVG assets
 

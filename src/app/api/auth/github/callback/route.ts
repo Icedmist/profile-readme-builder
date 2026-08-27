@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({ client_id: process.env.GITHUB_CLIENT_ID, client_secret: process.env.GITHUB_CLIENT_SECRET, code, redirect_uri: process.env.GITHUB_REDIRECT_URI || new URL("/api/auth/github/callback", request.url).toString() }),
+    body: JSON.stringify({ client_id: process.env.GITHUB_CLIENT_ID, client_secret: process.env.GITHUB_CLIENT_SECRET, code, redirect_uri: process.env.GITHUB_REDIRECT_URI || new URL("/api/auth/github/callback", process.env.APP_URL || request.nextUrl.origin).toString() }),
   });
   const token = await tokenResponse.json();
   if (!token.access_token) return NextResponse.redirect(new URL("/?github=auth-error", request.url));
