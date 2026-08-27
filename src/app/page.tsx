@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import JSZip from "jszip";
 
 type Project = { name: string; description: string; tech: string };
 type ComponentKey = "typing" | "snake" | "divider" | "projects" | "footer";
@@ -45,6 +46,7 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [publishStatus, setPublishStatus] = useState<"idle" | "publishing" | "success" | "error">("idle");
+  const [bundleStatus, setBundleStatus] = useState<"idle" | "creating" | "done">("idle");
   const [githubProfile, setGithubProfile] = useState<GithubProfile | null>(null);
   const [githubStatus, setGithubStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [authUser, setAuthUser] = useState<GithubAuthUser | null>(null);
@@ -85,6 +87,7 @@ export default function Home() {
   const downloadFile = (filename: string, content: string, type: string) => { const blob = new Blob([content], { type }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url); };
   const downloadMarkdown = () => downloadFile(`${profile.handle || "profile"}-README.md`, markdown, "text/markdown;charset=utf-8");
   const downloadSvg = (filename: string, content: string) => downloadFile(filename, content, "image/svg+xml;charset=utf-8");
+  const downloadBundle = async () => { setBundleStatus("creating"); const zip = new JSZip(); zip.file("README.md", markdown); const assetsFolder = zip.folder("assets"); assetsFolder?.file("profile-hero.svg", svgFiles.hero); assetsFolder?.file("process-flow.svg", svgFiles.process); assetsFolder?.file("projects-showcase.svg", svgFiles.projects); assetsFolder?.file("community-footer.svg", svgFiles.community); const content = await zip.generateAsync({ type: "blob" }); const url = URL.createObjectURL(content); const link = document.createElement("a"); link.href = url; link.download = `${profile.handle || "profile"}-readme-bundle.zip`; link.click(); URL.revokeObjectURL(url); setBundleStatus("done"); window.setTimeout(() => setBundleStatus("idle"), 2200); };
   const publishToGitHub = async () => {
     setPublishStatus("publishing");
     const response = await fetch("/api/github/publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ markdown, assets: [{ path: "assets/profile-hero.svg", content: svgFiles.hero }, { path: "assets/process-flow.svg", content: svgFiles.process }, { path: "assets/projects-showcase.svg", content: svgFiles.projects }, { path: "assets/community-footer.svg", content: svgFiles.community }] }) });
@@ -110,7 +113,7 @@ export default function Home() {
     </aside><section className="preview-panel">
       <div className="preview-toolbar"><div className="window-dots"><span /><span /><span /></div><div className="mode-tabs"><button className={mode === "studio" ? "selected" : ""} onClick={() => setMode("studio")}>Studio</button><button className={mode === "github" ? "selected" : ""} onClick={() => setMode("github")}>GitHub</button><button className={mode === "source" ? "selected" : ""} onClick={() => setMode("source")}>Markdown</button></div><div className="toolbar-actions"><button title="Toggle preview theme" onClick={() => setDarkPreview(!darkPreview)}>◐</button><button title="Download README" onClick={downloadMarkdown}>↓</button><button title="Copy Markdown" onClick={copyMarkdown}>{copied ? "✓" : "↗"}</button></div></div>
       {mode === "studio" && <StudioPreview profile={profile} githubProfile={githubProfile} svgFiles={svgFiles} projects={projects} components={components} showStats={showStats} showProjects={showProjects} showContact={showContact} />}{mode === "github" && <div className="github-frame"><div className="github-label">GitHub-compatible render <span>●</span><small>{githubStatus === "loading" ? "Refreshing GitHub data…" : githubStatus === "ready" ? `Live data from @${githubProfile?.username}` : "Connect a public GitHub username"}</small></div><div className="github-markdown"><Markdown remarkPlugins={[remarkGfm]} components={{ img: ({ src, alt, ...props }) => <img {...props} src={resolveAsset(src, svgFiles)} alt={alt || "README visual"} /> }}>{markdown}</Markdown></div></div>}{mode === "source" && <pre className="source-view"><code>{markdown}</code></pre>}
-      <div className="preview-footer"><span>{mode === "github" ? "GitHub Flavored Markdown · animated media preserved" : "Generated from your profile data"}</span><div><button className="publish-button" onClick={publishToGitHub}>{publishStatus === "publishing" ? "Publishing…" : publishStatus === "success" ? "Published" : "Add to GitHub"} <span>↗</span></button><button onClick={copyMarkdown}>{copied ? "Copied" : "Copy Markdown"} <span>↗</span></button><button onClick={downloadMarkdown}>Download <span>↓</span></button></div></div>
+      <div className="preview-footer"><span>{mode === "github" ? "GitHub Flavored Markdown · animated media preserved" : "Generated from your profile data"}</span><div><button className="publish-button" onClick={publishToGitHub}>{publishStatus === "publishing" ? "Publishing…" : publishStatus === "success" ? "Published" : "Add to GitHub"} <span>↗</span></button><button onClick={copyMarkdown}>{copied ? "Copied" : "Copy Markdown"} <span>↗</span></button><button onClick={downloadMarkdown}>README <span>↓</span></button><button onClick={downloadBundle}>{bundleStatus === "creating" ? "Building…" : bundleStatus === "done" ? "Bundled" : "ZIP bundle"} <span>↓</span></button></div></div>
     </section></div>
   </main>;
 }

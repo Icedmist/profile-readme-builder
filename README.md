@@ -46,6 +46,8 @@ The runtime authorization URL is generated as `https://github.com/login/oauth/au
 	 community-footer.svg
  ```
 
+Use **ZIP bundle** in the preview footer to download this complete structure in one file.
+
  ## Validate
 
  ```bash
