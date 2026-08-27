@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+ # readme / studio
 
-## Getting Started
+ An editable GitHub Profile README builder with live GitHub data, GitHub Flavored Markdown preview, generated animated SVG assets, and optional one-click publishing.
 
-First, run the development server:
+ ## Run locally
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+ ```bash
+ npm install
+ npm run dev
+ ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+ Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+ ## GitHub data
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+ Enter a public GitHub username in the editor. The app fetches public profile data through `/api/github/profile` and uses the repository count, contribution total, followers, following, avatar, and profile URL in the preview and generated Markdown.
 
-## Learn More
+ ## Publish to GitHub
 
-To learn more about Next.js, take a look at the following resources:
+ Copy `.env.example` to `.env.local`, create a GitHub OAuth App at https://github.com/settings/developers, and set:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+ ```bash
+ GITHUB_CLIENT_ID=your-client-id
+ GITHUB_CLIENT_SECRET=your-client-secret
+ GITHUB_REDIRECT_URI=http://localhost:3000/api/auth/github/callback
+ ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+ The **Add to GitHub** action uses OAuth with `repo` access, creates the user profile repository when needed, and publishes `README.md` plus the generated SVG files under `assets/`. Do not commit `.env.local` or OAuth secrets.
 
-## Deploy on Vercel
+ ## SVG assets
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+ The Studio generates editable SVGs for the hero, process diagram, project showcase, and footer. The downloaded README expects:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+ ```text
+ README.md
+ assets/
+	 profile-hero.svg
+	 process-flow.svg
+	 projects-showcase.svg
+	 community-footer.svg
+ ```
+
+ ## Validate
+
+ ```bash
+ npm run build
+ ```

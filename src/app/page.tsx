@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -9,6 +9,7 @@ type ComponentKey = "typing" | "snake" | "divider" | "projects" | "footer";
 type Mode = "studio" | "github" | "source";
 type AssetKey = "hero" | "process" | "community";
 type SvgSettings = { accent: string; ink: string; soft: string; heroLabel: string; processLabel: string; footerLabel: string };
+type GithubProfile = { username: string; name: string; avatarUrl: string; publicRepos: number; followers: number; following: number; contributions: number | null; profileUrl: string };
 
 const starterProjects: Project[] = [
   { name: "signal-garden", description: "A tiny observability layer for calm, useful software.", tech: "TypeScript · Next.js" },
@@ -42,11 +43,26 @@ export default function Home() {
   const [darkPreview, setDarkPreview] = useState(false);
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [publishStatus, setPublishStatus] = useState<"idle" | "publishing" | "success" | "error">("idle");
+  const [githubProfile, setGithubProfile] = useState<GithubProfile | null>(null);
+  const [githubStatus, setGithubStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const setField = (field: keyof typeof profile, value: string) => setProfile((current) => ({ ...current, [field]: value }));
   const toggleComponent = (key: ComponentKey) => setComponents((current) => ({ ...current, [key]: !current[key] }));
   const setAsset = (key: AssetKey, value: string) => setAssets((current) => ({ ...current, [key]: value }));
   const setSvgField = (key: keyof SvgSettings, value: string) => setSvgSettings((current) => ({ ...current, [key]: value }));
   const svgFiles = useMemo(() => ({ hero: buildHeroSvg(svgSettings), process: buildProcessSvg(svgSettings), projects: buildProjectsSvg(svgSettings, projects), community: buildFooterSvg(svgSettings) }), [projects, svgSettings]);
+
+  useEffect(() => {
+    const username = profile.handle.trim().replace(/^@/, "");
+    if (!username) { setGithubProfile(null); setGithubStatus("idle"); return; }
+    const controller = new AbortController();
+    setGithubStatus("loading");
+    fetch(`/api/github/profile?username=${encodeURIComponent(username)}`, { signal: controller.signal })
+      .then((response) => { if (!response.ok) throw new Error("GitHub profile unavailable"); return response.json() as Promise<GithubProfile>; })
+      .then((data) => { setGithubProfile(data); setGithubStatus("ready"); })
+      .catch((error: Error) => { if (error.name !== "AbortError") { setGithubProfile(null); setGithubStatus("error"); } });
+    return () => controller.abort();
+  }, [profile.handle]);
 
   const markdown = useMemo(() => {
     const work = projects.map((project, index) => `### ${index + 1}. ${project.name}\n\n${project.description}\n\n**${project.tech}**`).join("\n\n");
@@ -56,14 +72,21 @@ export default function Home() {
     const footer = components.footer ? "\n![Visual community footer](./assets/community-footer.svg)\n" : "";
     const hero = "![Profile hero](./assets/profile-hero.svg)\n\n";
     const projectImage = showProjects && components.projects ? "![Visual project showcase](./assets/projects-showcase.svg)\n\n" : "";
-    return `${hero}${typing}# Hey, I'm ${profile.name} 👋\n\n> ${profile.headline}\n\n${profile.bio}\n\n📍 ${profile.location} · [GitHub](https://github.com/${profile.handle})\n\n${divider}${showStats ? "## A few signals\n\n| 48 repositories | 1.2k contributions | 7 years shipping |\n| --- | --- | --- |\n\n" : ""}${showProjects ? `## Things I'm building\n\n${projectImage}${work}\n\n` : ""}${snake}${showContact ? `## Find me\n\n[GitHub](https://github.com/${profile.handle}) · [LinkedIn](https://linkedin.com/in/${profile.handle}) · hello@example.com\n` : ""}${footer}`;
-  }, [components, profile, projects, showContact, showProjects, showStats]);
+    const stats = `| ${githubProfile?.publicRepos ?? 48} repositories | ${githubProfile?.contributions?.toLocaleString() ?? "1.2k"} contributions | ${githubProfile?.followers ?? 7} followers |\n| --- | --- | --- |\n\n`;
+    return `${hero}${typing}# Hey, I'm ${profile.name} 👋\n\n> ${profile.headline}\n\n${profile.bio}\n\n📍 ${profile.location} · [GitHub](https://github.com/${profile.handle})\n\n${divider}${showStats ? `## A few signals\n\n${stats}` : ""}${showProjects ? `## Things I'm building\n\n${projectImage}${work}\n\n` : ""}${snake}${showContact ? `## Find me\n\n[GitHub](https://github.com/${profile.handle}) · [LinkedIn](https://linkedin.com/in/${profile.handle}) · hello@example.com\n` : ""}${footer}`;
+  }, [components, githubProfile, profile, projects, showContact, showProjects, showStats]);
 
   const updateProject = (index: number, key: keyof Project, value: string) => setProjects((current) => current.map((project, projectIndex) => projectIndex === index ? { ...project, [key]: value } : project));
   const copyMarkdown = async () => { await navigator.clipboard.writeText(markdown); setCopied(true); window.setTimeout(() => setCopied(false), 1800); };
   const downloadFile = (filename: string, content: string, type: string) => { const blob = new Blob([content], { type }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url); };
   const downloadMarkdown = () => downloadFile(`${profile.handle || "profile"}-README.md`, markdown, "text/markdown;charset=utf-8");
   const downloadSvg = (filename: string, content: string) => downloadFile(filename, content, "image/svg+xml;charset=utf-8");
+  const publishToGitHub = async () => {
+    setPublishStatus("publishing");
+    const response = await fetch("/api/github/publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ markdown, assets: [{ path: "assets/profile-hero.svg", content: svgFiles.hero }, { path: "assets/process-flow.svg", content: svgFiles.process }, { path: "assets/projects-showcase.svg", content: svgFiles.projects }, { path: "assets/community-footer.svg", content: svgFiles.community }] }) });
+    if (response.status === 401) { window.location.href = "/api/auth/github/start"; return; }
+    setPublishStatus(response.ok ? "success" : "error");
+  };
   const saveDraft = () => { localStorage.setItem("readme-studio-draft", JSON.stringify({ profile, projects, components, svgSettings, showStats, showProjects, showContact })); setSaved(true); window.setTimeout(() => setSaved(false), 1800); };
   const reset = () => { setProfile(initialState); setProjects(starterProjects); setAssets(starterAssets); setSvgSettings(initialSvgSettings); setComponents({ typing: true, snake: true, divider: true, projects: true, footer: true }); setShowStats(true); setShowProjects(true); setShowContact(true); setSaved(false); };
 
@@ -80,8 +103,8 @@ export default function Home() {
       <div className="editor-actions"><button className="text-button" onClick={reset}>Reset</button><button className="save-button" onClick={saveDraft}>{saved ? "Saved" : "Save draft"} <span>↗</span></button></div>
     </aside><section className="preview-panel">
       <div className="preview-toolbar"><div className="window-dots"><span /><span /><span /></div><div className="mode-tabs"><button className={mode === "studio" ? "selected" : ""} onClick={() => setMode("studio")}>Studio</button><button className={mode === "github" ? "selected" : ""} onClick={() => setMode("github")}>GitHub</button><button className={mode === "source" ? "selected" : ""} onClick={() => setMode("source")}>Markdown</button></div><div className="toolbar-actions"><button title="Toggle preview theme" onClick={() => setDarkPreview(!darkPreview)}>◐</button><button title="Download README" onClick={downloadMarkdown}>↓</button><button title="Copy Markdown" onClick={copyMarkdown}>{copied ? "✓" : "↗"}</button></div></div>
-      {mode === "studio" && <StudioPreview profile={profile} svgFiles={svgFiles} projects={projects} components={components} showStats={showStats} showProjects={showProjects} showContact={showContact} />}{mode === "github" && <div className="github-frame"><div className="github-label">GitHub-compatible render <span>●</span></div><div className="github-markdown"><Markdown remarkPlugins={[remarkGfm]} components={{ img: ({ src, alt, ...props }) => <img {...props} src={resolveAsset(src, svgFiles)} alt={alt || "README visual"} /> }}>{markdown}</Markdown></div></div>}{mode === "source" && <pre className="source-view"><code>{markdown}</code></pre>}
-      <div className="preview-footer"><span>{mode === "github" ? "GitHub Flavored Markdown · animated media preserved" : "Generated from your profile data"}</span><div><button onClick={copyMarkdown}>{copied ? "Copied" : "Copy Markdown"} <span>↗</span></button><button onClick={downloadMarkdown}>Download <span>↓</span></button></div></div>
+      {mode === "studio" && <StudioPreview profile={profile} githubProfile={githubProfile} svgFiles={svgFiles} projects={projects} components={components} showStats={showStats} showProjects={showProjects} showContact={showContact} />}{mode === "github" && <div className="github-frame"><div className="github-label">GitHub-compatible render <span>●</span><small>{githubStatus === "loading" ? "Refreshing GitHub data…" : githubStatus === "ready" ? `Live data from @${githubProfile?.username}` : "Connect a public GitHub username"}</small></div><div className="github-markdown"><Markdown remarkPlugins={[remarkGfm]} components={{ img: ({ src, alt, ...props }) => <img {...props} src={resolveAsset(src, svgFiles)} alt={alt || "README visual"} /> }}>{markdown}</Markdown></div></div>}{mode === "source" && <pre className="source-view"><code>{markdown}</code></pre>}
+      <div className="preview-footer"><span>{mode === "github" ? "GitHub Flavored Markdown · animated media preserved" : "Generated from your profile data"}</span><div><button className="publish-button" onClick={publishToGitHub}>{publishStatus === "publishing" ? "Publishing…" : publishStatus === "success" ? "Published" : "Add to GitHub"} <span>↗</span></button><button onClick={copyMarkdown}>{copied ? "Copied" : "Copy Markdown"} <span>↗</span></button><button onClick={downloadMarkdown}>Download <span>↓</span></button></div></div>
     </section></div>
   </main>;
 }
@@ -92,6 +115,9 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
 function resolveAsset(src: string | Blob | undefined, svgFiles: { hero: string; process: string; projects: string; community: string }) { if (typeof src !== "string") return ""; if (src === "./assets/profile-hero.svg") return svgData(svgFiles.hero); if (src === "./assets/process-flow.svg") return svgData(svgFiles.process); if (src === "./assets/projects-showcase.svg") return svgData(svgFiles.projects); if (src === "./assets/community-footer.svg") return svgData(svgFiles.community); return src; }
 function Toggle({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) { return <button className="toggle-row" onClick={onClick}><span>{label}</span><span className={`toggle ${active ? "active" : ""}`}><i /></span></button>; }
 function ComponentToggle({ label, note, active, onClick }: { label: string; note: string; active: boolean; onClick: () => void }) { return <button className="component-row" onClick={onClick}><span><strong>{label}</strong><small>{note}</small></span><span className={`toggle ${active ? "active" : ""}`}><i /></span></button>; }
-function StudioPreview({ profile, projects, svgFiles, components, showStats, showProjects, showContact }: { profile: typeof initialState; projects: Project[]; svgFiles: { hero: string; process: string; projects: string; community: string }; components: Record<ComponentKey, boolean>; showStats: boolean; showProjects: boolean; showContact: boolean }) {
-  return <article className="readme-card"><img className="recipe-hero" src={svgData(svgFiles.hero)} alt="Generated profile hero SVG preview" />{components.typing && <div className="studio-typing"><span className="typing-caret" /> {profile.headline}</div>}<div className="readme-kicker"><span className="pulse-line" /> PERSONAL README <span>/{profile.handle}</span></div><h2>Hey, I&apos;m <strong>{profile.name}</strong> <span className="wave">👋</span></h2><p className="readme-headline">{profile.headline}</p><p className="readme-bio">{profile.bio}</p><div className="profile-meta"><span>◎ {profile.location}</span><span>↗ github.com/{profile.handle}</span></div>{showStats && <div className="signal-block"><div><span className="signal-value">48</span><span className="signal-label">repositories</span></div><div><span className="signal-value">1.2k</span><span className="signal-label">contributions</span></div><div><span className="signal-value">7</span><span className="signal-label">years shipping</span></div></div>}{showProjects && <><div className="readme-rule"><span /> THINGS I&apos;M BUILDING <span /></div>{components.projects && <img className="recipe-projects" src={svgData(svgFiles.projects)} alt="Generated project showcase SVG preview" />}<div className="project-list">{projects.map((project, index) => <div className="readme-project" key={`${project.name}-preview`}><div className="project-index">0{index + 1}</div><div><h3>{project.name} <span>↗</span></h3><p>{project.description}</p><small>{project.tech}</small></div></div>)}</div></>}{components.divider && <img className="recipe-process" src={svgData(svgFiles.process)} alt="Generated process diagram SVG preview" />}{components.snake && <div className="studio-snake"><span className="snake-trail" /> CONTRIBUTION TRAIL <span className="snake-grid">▦ ▦ ▦ ▦ ▦</span></div>}{showContact && <div className="contact-strip"><strong>Find me</strong><span>GitHub</span><span>LinkedIn</span><span>hello@example.com</span></div>}{components.footer && <img className="recipe-footer" src={svgData(svgFiles.community)} alt="Generated community footer SVG preview" />}<div className="readme-footer"><span>Made with intention.</span><span>⌁</span></div></article>;
+function StudioPreview({ profile, githubProfile, projects, svgFiles, components, showStats, showProjects, showContact }: { profile: typeof initialState; githubProfile: GithubProfile | null; projects: Project[]; svgFiles: { hero: string; process: string; projects: string; community: string }; components: Record<ComponentKey, boolean>; showStats: boolean; showProjects: boolean; showContact: boolean }) {
+  const repositoryCount = githubProfile?.publicRepos ?? 48;
+  const contributionCount = githubProfile?.contributions?.toLocaleString() ?? "1.2k";
+  const followerCount = githubProfile?.followers ?? 7;
+  return <article className="readme-card"><img className="recipe-hero" src={svgData(svgFiles.hero)} alt="Generated profile hero SVG preview" />{components.typing && <div className="studio-typing"><span className="typing-caret" /> {profile.headline}</div>}<div className="readme-kicker"><span className="pulse-line" /> PERSONAL README <span>/{profile.handle}</span></div><h2>Hey, I&apos;m <strong>{profile.name}</strong> <span className="wave">👋</span></h2><p className="readme-headline">{profile.headline}</p><p className="readme-bio">{profile.bio}</p><div className="profile-meta"><span>◎ {profile.location}</span><span>↗ github.com/{profile.handle}</span></div>{showStats && <div className="signal-block"><div><span className="signal-value">{repositoryCount}</span><span className="signal-label">repositories</span></div><div><span className="signal-value">{contributionCount}</span><span className="signal-label">contributions</span></div><div><span className="signal-value">{followerCount}</span><span className="signal-label">followers</span></div></div>}{showProjects && <><div className="readme-rule"><span /> THINGS I&apos;M BUILDING <span /></div>{components.projects && <img className="recipe-projects" src={svgData(svgFiles.projects)} alt="Generated project showcase SVG preview" />}<div className="project-list">{projects.map((project, index) => <div className="readme-project" key={`${project.name}-preview`}><div className="project-index">0{index + 1}</div><div><h3>{project.name} <span>↗</span></h3><p>{project.description}</p><small>{project.tech}</small></div></div>)}</div></>}{components.divider && <img className="recipe-process" src={svgData(svgFiles.process)} alt="Generated process diagram SVG preview" />}{components.snake && <div className="studio-snake"><span className="snake-trail" /> CONTRIBUTION TRAIL <span className="snake-grid">▦ ▦ ▦ ▦ ▦</span></div>}{showContact && <div className="contact-strip"><strong>Find me</strong><span>GitHub</span><span>LinkedIn</span><span>hello@example.com</span></div>}{components.footer && <img className="recipe-footer" src={svgData(svgFiles.community)} alt="Generated community footer SVG preview" />}<div className="readme-footer"><span>Made with intention.</span><span>⌁</span></div></article>;
 }
