@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   title: "readme / studio",
   description: "Build a personal GitHub README that sounds like you.",
   icons: {
-    icon: "/icon.svg",
+    icon: "/pictures/readme-studio-logo.png",
   },
 };
 
