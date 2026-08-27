@@ -48,6 +48,8 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [publishStatus, setPublishStatus] = useState<"idle" | "publishing" | "success" | "error">("idle");
+  const [publishError, setPublishError] = useState("");
+  const [authError, setAuthError] = useState("");
   const [bundleStatus, setBundleStatus] = useState<"idle" | "creating" | "done">("idle");
   const [githubProfile, setGithubProfile] = useState<GithubProfile | null>(null);
   const [profileSynced, setProfileSynced] = useState(false);
@@ -72,6 +74,16 @@ export default function Home() {
   }, [profile.handle]);
 
   useEffect(() => { fetch("/api/auth/github/me").then((response) => response.ok ? response.json() as Promise<{ login: string; name: string; avatarUrl: string; profileUrl: string }> : null).then((user) => setAuthUser(user)); }, []);
+  useEffect(() => {
+    if (!authUser) return;
+    const controller = new AbortController();
+    fetch(`/api/github/profile?username=${encodeURIComponent(authUser.login)}`, { signal: controller.signal })
+      .then((response) => { if (!response.ok) throw new Error("GitHub profile unavailable"); return response.json() as Promise<GithubProfile>; })
+      .then((data) => { setGithubProfile(data); setProfile((current) => ({ ...current, name: data.name, handle: data.username, bio: data.bio || current.bio })); if (data.repositories.length) setProjects(data.repositories.slice(0, 3).map(({ name, description, tech }) => ({ name, description, tech }))); setProfileSynced(true); })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [authUser]);
+  useEffect(() => { const status = new URLSearchParams(window.location.search).get("github"); if (status === "not-configured") setAuthError("GitHub login needs to be configured on this deployment. Add GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET, then try again."); if (status === "auth-error") setAuthError("GitHub could not complete the login. Check the OAuth callback URL and try again."); if (status === "connected") window.history.replaceState({}, "", window.location.pathname); }, []);
 
   const markdown = useMemo(() => {
     const work = projects.map((project, index) => `### ${index + 1}. ${project.name}\n\n${project.description}\n\n**${project.tech}**`).join("\n\n");
@@ -93,8 +105,10 @@ export default function Home() {
   const downloadBundle = async () => { setBundleStatus("creating"); const zip = new JSZip(); zip.file("README.md", markdown); const assetsFolder = zip.folder("assets"); assetsFolder?.file("profile-hero.svg", svgFiles.hero); assetsFolder?.file("process-flow.svg", svgFiles.process); assetsFolder?.file("projects-showcase.svg", svgFiles.projects); assetsFolder?.file("community-footer.svg", svgFiles.community); const content = await zip.generateAsync({ type: "blob" }); const url = URL.createObjectURL(content); const link = document.createElement("a"); link.href = url; link.download = `${profile.handle || "profile"}-readme-bundle.zip`; link.click(); URL.revokeObjectURL(url); setBundleStatus("done"); window.setTimeout(() => setBundleStatus("idle"), 2200); };
   const publishToGitHub = async () => {
     setPublishStatus("publishing");
+    setPublishError("");
     const response = await fetch("/api/github/publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ markdown, assets: [{ path: "assets/profile-hero.svg", content: svgFiles.hero }, { path: "assets/process-flow.svg", content: svgFiles.process }, { path: "assets/projects-showcase.svg", content: svgFiles.projects }, { path: "assets/community-footer.svg", content: svgFiles.community }] }) });
     if (response.status === 401) { window.location.href = "/api/auth/github/start"; return; }
+    if (!response.ok) { const payload = await response.json().catch(() => ({ error: "GitHub could not publish this profile." })); setPublishError(payload.error || "GitHub could not publish this profile."); }
     setPublishStatus(response.ok ? "success" : "error");
   };
   const loginWithGitHub = () => { window.location.href = "/api/auth/github/start"; };
@@ -105,6 +119,7 @@ export default function Home() {
 
   return <main className={`builder-shell ${darkPreview ? "dark-preview" : ""}`}>
     <header className="topbar"><div className="brand-lockup"><span className="brand-mark">✳</span><span>readme / studio</span></div><div className="topbar-meta"><span className="status-dot" /> {saved ? "Draft saved" : "Autosaved just now"}{authUser ? <button className="auth-user" onClick={logoutFromGitHub} title="Sign out of GitHub"><img src={authUser.avatarUrl} alt="" /> @{authUser.login}</button> : <button className="github-login" onClick={loginWithGitHub}>Log in with GitHub <span>↗</span></button>}<button className="avatar" onClick={saveDraft}>MO</button></div></header>
+    {authError && <div className="notice error-notice">{authError}<button onClick={() => setAuthError("")} aria-label="Dismiss notice">×</button></div>}
     <section className="intro-row"><div><p className="eyebrow">Personal identity, in markdown</p><h1>Make a README<br /><em>that sounds like you.</em></h1></div><div className="intro-side"><p>Compose a living profile from GitHub-safe animated components, then preview exactly what travels with your Markdown.</p>{githubProfile && <button className="sync-profile" onClick={useGitHubProfile}>{profileSynced ? "Profile synced" : `Use @${githubProfile.username} profile`} <span>↗</span></button>}<div className="publish-panel"><strong>{authUser ? `Connected as @${authUser.login}` : "Publish to your profile"}</strong><small>{authUser ? "Your README and SVG assets are ready." : "Log in with GitHub to add this README automatically."}</small>{authUser ? <button onClick={publishToGitHub}>{publishStatus === "publishing" ? "Publishing…" : publishStatus === "success" ? "Published" : "Add to GitHub"} <span>↗</span></button> : <button onClick={loginWithGitHub}>Log in with GitHub <span>↗</span></button>}</div><span className="step-count">01 <i /> 03</span></div></section>
     <div className="workspace-grid"><aside className="editor-panel">
       <div className="panel-heading"><div><span className="section-number">01</span><h2>Your signal</h2></div><span className="edit-label">EDITING</span></div>
@@ -117,7 +132,7 @@ export default function Home() {
     </aside><section className="preview-panel">
       <div className="preview-toolbar"><div className="window-dots"><span /><span /><span /></div><div className="mode-tabs"><button className={mode === "studio" ? "selected" : ""} onClick={() => setMode("studio")}>Studio</button><button className={mode === "github" ? "selected" : ""} onClick={() => setMode("github")}>GitHub</button><button className={mode === "source" ? "selected" : ""} onClick={() => setMode("source")}>Markdown</button></div><div className="toolbar-actions"><button title="Toggle preview theme" onClick={() => setDarkPreview(!darkPreview)}>◐</button><button title="Download README" onClick={downloadMarkdown}>↓</button><button title="Copy Markdown" onClick={copyMarkdown}>{copied ? "✓" : "↗"}</button></div></div>
       {(mode === "studio" || mode === "github") && <GithubPreview mode={mode} githubStatus={githubStatus} githubProfile={githubProfile} svgFiles={svgFiles} markdown={markdown} />}{mode === "source" && <pre className="source-view"><code>{markdown}</code></pre>}
-      <div className="preview-footer"><span>{mode === "github" ? "GitHub Flavored Markdown · animated media preserved" : "Generated from your profile data"}</span><div><button className="publish-button" onClick={publishToGitHub}>{publishStatus === "publishing" ? "Publishing…" : publishStatus === "success" ? "Published" : "Add to GitHub"} <span>↗</span></button><button onClick={copyMarkdown}>{copied ? "Copied" : "Copy Markdown"} <span>↗</span></button><button onClick={downloadMarkdown}>README <span>↓</span></button><button onClick={downloadBundle}>{bundleStatus === "creating" ? "Building…" : bundleStatus === "done" ? "Bundled" : "ZIP bundle"} <span>↓</span></button></div></div>
+      {publishError && <div className="notice publish-notice">{publishError}</div>}<div className="preview-footer"><span>{mode === "github" ? "GitHub Flavored Markdown · animated media preserved" : "Generated from your profile data"}</span><div><button className="publish-button" onClick={publishToGitHub}>{publishStatus === "publishing" ? "Publishing…" : publishStatus === "success" ? "Published" : "Add to GitHub"} <span>↗</span></button><button onClick={copyMarkdown}>{copied ? "Copied" : "Copy Markdown"} <span>↗</span></button><button onClick={downloadMarkdown}>README <span>↓</span></button><button onClick={downloadBundle}>{bundleStatus === "creating" ? "Building…" : bundleStatus === "done" ? "Bundled" : "ZIP bundle"} <span>↓</span></button></div></div>
     </section></div>
   </main>;
 }
